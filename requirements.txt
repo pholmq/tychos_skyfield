@@ -1,0 +1,6 @@
+certifi==2025.8.3
+jplephem==2.23
+numpy==2.2.6
+scipy==1.15.3
+sgp4==2.25
+skyfield==1.53
