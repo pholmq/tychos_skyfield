@@ -2,6 +2,7 @@ import argparse
 import datetime as dt
 import math
 import calendar
+import re
 from tychos_skyfield import baselib as T
 
 def get_julian_day(date_time):
@@ -9,6 +10,17 @@ def get_julian_day(date_time):
     ref = dt.datetime(2000, 6, 21, 12, 0, 0)
     julian_day = (date_time - ref).total_seconds() / 24 / 3600 + 2451717.0
     return julian_day
+
+def parse_tychos_coord(coord_str):
+    """Extracts numeric values from Tychos strings (e.g., '19h 49m 4s' -> 19.817)."""
+    # Find all floating point or integer numbers in the string
+    nums = [float(x) for x in re.findall(r"[-+]?(?:\d*\.\d+|\d+)", str(coord_str))]
+    if len(nums) < 3:
+        return 0.0
+    
+    # Handle negative signs safely (important for -0deg)
+    sign = -1 if '-' in str(coord_str) else 1
+    return sign * (abs(nums[0]) + (nums[1] / 60.0) + (nums[2] / 3600.0))
 
 def format_ra(ra_hours):
     """Converts decimal hours to HHhMMmSSs string."""
@@ -121,16 +133,25 @@ def main():
             jd = get_julian_day(current_date)
             system.move_system(jd)
             
-            p_ra, p_dec, p_dist = system[planet].radec_direct(system['Earth'], system['Polar_axis'], 'date')
-            s_ra, s_dec, _ = system['Sun'].radec_direct(system['Earth'], system['Polar_axis'], 'date')
+            # 1. Fetch raw strings from Tychos
+            p_ra_str, p_dec_str, p_dist = system[planet].radec_direct(system['Earth'], system['Polar_axis'], 'date')
+            s_ra_str, s_dec_str, _ = system['Sun'].radec_direct(system['Earth'], system['Polar_axis'], 'date')
             
-            elongation = calculate_elongation(s_ra, s_dec, p_ra, p_dec)
-            dist_au = p_dist / 100.0
+            # 2. Parse into decimals
+            p_ra_num = parse_tychos_coord(p_ra_str)
+            p_dec_num = parse_tychos_coord(p_dec_str)
+            s_ra_num = parse_tychos_coord(s_ra_str)
+            s_dec_num = parse_tychos_coord(s_dec_str)
             
+            # 3. Calculate math with decimals
+            elongation = calculate_elongation(s_ra_num, s_dec_num, p_ra_num, p_dec_num)
+            dist_au = float(p_dist) / 100.0
+            
+            # 4. Format strings for the table
             date_fmt = current_date.strftime("%Y-%m-%d")
             time_fmt = current_date.strftime("%H:%M:%S")
-            ra_fmt = format_ra(p_ra)
-            dec_fmt = format_dec(p_dec)
+            ra_fmt = format_ra(p_ra_num)
+            dec_fmt = format_dec(p_dec_num)
             
             print(f"{date_fmt:<13}| {time_fmt:<11}| {ra_fmt:<13}| {dec_fmt:<13}| {dist_au:.2f} AU      | {elongation:.3f}°")
             

@@ -192,8 +192,8 @@ class PlanetObj:
         dec_sgn = np.sign(dec)
         dec *= dec_sgn * 180 / np.pi
         dec_str = ("{:+.0f}deg {:02.0f}\' {:02.1f}\""
-                   .format(dec_sgn * np.floor(dec), np.floor(dec % np.floor(dec) * 60),
-                           np.remainder(dec % np.floor(dec) * 60, 1) * 60))
+                 .format(dec_sgn * np.floor(dec), np.floor((dec - np.floor(dec)) * 60),
+                            np.remainder((dec - np.floor(dec)) * 60, 1) * 60))
         ra *= 12 / np.pi
         ra_str = "{:.0f}h {:02.0f}m {:02.2f}s".format(
             np.floor(ra), np.floor(np.remainder(ra, 1) * 60),
