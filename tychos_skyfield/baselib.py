@@ -2,6 +2,8 @@
 Tychosium model implementation in Python.
 Uses updated Tychosium code as reference.
 """
+import os
+import json
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 
@@ -260,9 +262,10 @@ class TychosSystem:
             'moon_def_a', 'moon_def_b', 'moon', 'venus_def_a', 'venus_def_b', 'venus',
             'mars_def_e', 'mars_def_s', 'mars', 'phobos', 'deimos', 'jupiter_def', 'jupiter',
             'saturn_def', 'saturn', 'uranus_def', 'uranus', 'neptune_def', 'neptune',
+            'pluto_def', 'pluto',
             'halleys_def', 'halleys', 'eros_def_a', 'eros_def_b', 'eros']
     _observable_objects = ['sun', 'mercury', 'moon', 'venus', 'mars', 'phobos', 'deimos',
-            'jupiter', 'saturn', 'uranus', 'neptune', 'halleys', 'eros']
+            'jupiter', 'saturn', 'uranus', 'neptune', 'pluto', 'halleys', 'eros']
 
     def __init__(self, julian_day = 2451717.0):
         self.julian_day = julian_day
@@ -283,90 +286,51 @@ class TychosSystem:
 
     def _initialize_objects(self):
         """
-        Defines initial parameters for each planet
+        Defines initial parameters for each planet loaded dynamically from JSON
         :return: none
         """
+        json_path = os.path.join(os.getcwd(), 'settings', 'celestial-settings.json')
+        
+        if not os.path.exists(json_path):
+            raise FileNotFoundError(f"Configuration file not found at {json_path}")
 
-        self._objs["earth"] = PlanetObj(37.8453, OrbitCenter(0, 0, 0),
-                                        OrbitTilt(0, 0), 0, -0.0002479160869310127)
-        self._objs["polar_axis"] = PlanetObj(0, OrbitCenter(0, 0, 0),
-                                             OrbitTilt(0, 0), 0, 0.0)
+        with open(json_path, 'r') as f:
+            settings_data = json.load(f)
 
-        self._objs["sun_def"] = PlanetObj(0.0, OrbitCenter(1.4, -0.6, 0.0),
-                                          OrbitTilt(0.1, 0.0), 0.0, 0.0)
-        self._objs["sun"] = PlanetObj(100.0, OrbitCenter(1.2, -0.1, 0.0),
-                                      OrbitTilt(0.1, 0.0), 0.0, 2 * np.pi)
+        for item in settings_data:
+            # Transform JSON names to python dictionary keys
+            name = item["name"].lower()
+            name = name.replace(" deferent ", "_def_")
+            if name.endswith(" deferent"):
+                name = name.replace(" deferent", "_def")
+            key = name.replace(" ", "_")
 
-        self._objs["mercury_def_a"] = PlanetObj(100, OrbitCenter(-6.9, -3.2, 0),
-                                                OrbitTilt(0, 0), 0, 2 * np.pi)
-        self._objs["mercury_def_b"] = PlanetObj(0, OrbitCenter(0, 0, 0),
-                                                OrbitTilt(-1.3, 0.5), 33, -2 * np.pi)
-        self._objs["mercury"] = PlanetObj(38.710225, OrbitCenter(0.6, 3, -0.1),
-                                          OrbitTilt(3, 0.5), -180.8, 26.08763045)
+            if key == "systemcenter":
+                key = "polar_axis"
 
-        m_factor = 39.2078
-        self._objs["moon_def_a"] = PlanetObj(0.0279352315075 / m_factor,
-                                             OrbitCenter(0 / m_factor, 0 / m_factor, 0 / m_factor),
-                                             OrbitTilt(-0.2, 0.5), 226.4, 0.71015440177343)
-        self._objs["moon_def_b"] = (
-            PlanetObj(0 / m_factor,
-                      OrbitCenter(-0.38 / m_factor, 0.22 / m_factor, 0 / m_factor),
-                      OrbitTilt(2.3, 2.6), -1.8, 0.0))
-        self._objs["moon"] = (
-            PlanetObj(10 / m_factor,
-                      OrbitCenter(0.8 / m_factor, -0.81 / m_factor, -0.07 / m_factor),
-                      OrbitTilt(-1.8, -2.6), 261.2, 83.28521))
+            # Apply data from JSON dynamically
+            self._objs[key] = PlanetObj(
+                orbit_radius=item.get("orbitRadius", 0.0),
+                orbit_center=OrbitCenter(
+                    item.get("orbitCentera", 0.0), 
+                    item.get("orbitCenterb", 0.0), 
+                    item.get("orbitCenterc", 0.0)
+                ),
+                orbit_tilt=OrbitTilt(
+                    item.get("orbitTilta", 0.0), 
+                    item.get("orbitTiltb", 0.0)
+                ),
+                start_pos=item.get("startPos", 0.0),
+                speed=item.get("speed", 0.0)
+            )
 
-        self._objs["venus_def_a"] = PlanetObj(100, OrbitCenter(0.5, 0.5, 0),
-                                              OrbitTilt(0, 0), 0, 2 * np.pi)
-        self._objs["venus_def_b"] = PlanetObj(0, OrbitCenter(0, 0.65, 0),
-                                              OrbitTilt(0, 0), 16.6, -2 * np.pi)
-        self._objs["venus"] = PlanetObj(72.327789, OrbitCenter(0.6, -0.9, 0),
-                                        OrbitTilt(3.2, -0.05), -23.6, 10.21331385)
+            # Ensure tracked class objects exist
+            if key not in type(self)._all_objects:
+                type(self)._all_objects.append(key)
 
-        self._objs["mars_def_e"] = PlanetObj(100, OrbitCenter(10.1, -20.7, 0),
-                                             OrbitTilt(0, 0), 0, 2 * np.pi)
-        self._objs["mars_def_s"] = PlanetObj(7.44385, OrbitCenter(0, 0, 0),
-                                             OrbitTilt(0, 0), -115, 0.3974599)
-        self._objs["mars"] = PlanetObj(152.677, OrbitCenter(0, 0, 0),
-                                       OrbitTilt(-0.2, -1.7), 119.3, -3.33985)
-
-        self._objs["phobos"] = PlanetObj(5, OrbitCenter(0, 0, 0),
-                                         OrbitTilt(0, 0), 122, 6986.5)
-        self._objs["deimos"] = PlanetObj(10, OrbitCenter(0, 0, 0),
-                                         OrbitTilt(0, 0), 0, 1802.0)
-
-        self._objs["jupiter_def"] = PlanetObj(0.0, OrbitCenter(0.0, 0.0, 0.0),
-                                              OrbitTilt(0.0, 0.0), 75.4, -2 * np.pi)
-        self._objs["jupiter"] = PlanetObj(520.4, OrbitCenter(-49.0, 3.0, -1.0),
-                                          OrbitTilt(0.0, -1.2), -34.0, 0.52994136)
-
-        self._objs["saturn_def"] = PlanetObj(20, OrbitCenter(11, 0, 0),
-                                             OrbitTilt(0, 0), 518, -2 * np.pi)
-        self._objs["saturn"] = PlanetObj(958.2, OrbitCenter(69, 40, 0),
-                                         OrbitTilt(-2.5, 0), -123.8, 0.21351984)
-
-        self._objs["uranus_def"] = PlanetObj(20, OrbitCenter(0, 0, 0),
-                                             OrbitTilt(0, 0), 123, -2 * np.pi)
-        self._objs["uranus"] = PlanetObj(1920.13568, OrbitCenter(150, -65, 0),
-                                         OrbitTilt(-0.2, -0.7), 371.8, 0.07500314)
-
-        self._objs["neptune_def"] = PlanetObj(20, OrbitCenter(0, 0, 0),
-                                              OrbitTilt(0, 0), 175.2, -2 * np.pi)
-        self._objs["neptune"] = PlanetObj(3004.72, OrbitCenter(0, 20, 0),
-                                          OrbitTilt(-1.6, 1.15), 329.3, 0.03837314)
-
-        self._objs["halleys_def"] = PlanetObj(20, OrbitCenter(-5, 10, 11),
-                                              OrbitTilt(0, 0), 179, -2 * np.pi)
-        self._objs["halleys"] = PlanetObj(1674.5, OrbitCenter(-1540, -233.5, -507),
-                                          OrbitTilt(6.4, 18.55), 76.33, -0.0830100973)
-
-        self._objs["eros_def_a"] = PlanetObj(100, OrbitCenter(-40, 31.5, -0.5),
-                                             OrbitTilt(-7.3, 3.6), 0, 2 * np.pi)
-        self._objs["eros_def_b"] = PlanetObj(0, OrbitCenter(-16, -4.5, 0),
-                                             OrbitTilt(0, 0), 0, -7.291563307179587)
-        self._objs["eros"] = PlanetObj(145.79, OrbitCenter(5.2, -6, 0),
-                                       OrbitTilt(0, 0), 171.8, 4.57668492)
+        # Fallback ensuring the polar_axis exists
+        if "polar_axis" not in self._objs:
+            self._objs["polar_axis"] = PlanetObj(0, OrbitCenter(0, 0, 0), OrbitTilt(0, 0), 0, 0.0)
 
     def _add_child(self, parent, child):
         """
@@ -375,7 +339,6 @@ class TychosSystem:
         :param child: string
         :return: none
         """
-
         self._objs[parent].add_child(self._objs[child])
 
     def _set_dependencies(self):
@@ -390,7 +353,6 @@ class TychosSystem:
         self._add_child("sun_def", "sun")
 
         self._add_child("earth", "moon_def_a")
-
         self._add_child("moon_def_a", "moon_def_b")
         self._add_child("moon_def_b", "moon")
 
@@ -420,6 +382,11 @@ class TychosSystem:
 
         self._add_child("sun", "neptune_def")
         self._add_child("neptune_def", "neptune")
+        
+        # New link dynamically added for Pluto
+        if "pluto_def" in self._objs and "pluto" in self._objs:
+            self._add_child("sun", "pluto_def")
+            self._add_child("pluto_def", "pluto")
 
         self._add_child("sun", "halleys_def")
         self._add_child("halleys_def", "halleys")
@@ -452,7 +419,6 @@ class TychosSystem:
         Returns all possible objects
         :return: list[string]
         """
-
         return cls._all_objects
 
     @classmethod
@@ -461,5 +427,4 @@ class TychosSystem:
         Returns observable objects
         :return: list[string]
         """
-
         return cls._observable_objects
