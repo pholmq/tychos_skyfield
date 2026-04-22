@@ -1,0 +1,1 @@
+python3 -m scripts.gen_eph --start 2000-06-21 --end 2100-06-21 --step-val 10 --step-unit years --planets "Mercury,Venus,Mars"
