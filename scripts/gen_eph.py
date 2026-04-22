@@ -1,5 +1,6 @@
 import argparse
 import datetime as dt
+import calendar
 import math
 import re
 from tychos_skyfield import baselib as T
@@ -20,42 +21,25 @@ def calendar_to_jd(year, month, day, hour=0, minute=0, second=0):
     JD += (hour + minute / 60 + second / 3600) / 24.0
     return JD
 
-def jd_to_calendar(jd):
-    """Meeus algorithm to convert Julian Date back to Calendar Date/Time strings."""
-    Z = math.floor(jd + 0.5)
-    F = (jd + 0.5) - Z
-    A = Z
-
-    if Z >= 2299161:
-        alpha = math.floor((Z - 1867216.25) / 36524.25)
-        A = Z + 1 + alpha - math.floor(alpha / 4)
-
-    B = A + 1524
-    C = math.floor((B - 122.1) / 365.25)
-    D = math.floor(365.25 * C)
-    E = math.floor((B - D) / 30.6001)
-
-    day_frac = B - D - math.floor(30.6001 * E) + F
-    d = math.floor(day_frac)
-    month = E - 1 if E < 14 else E - 13
-    year = C - 4716 if month > 2 else C - 4715
-
-    hours_frac = (day_frac - d) * 24
-    h = math.floor(hours_frac)
-    mins_frac = (hours_frac - h) * 60
-    m = math.floor(mins_frac)
-    
-    # JS-style rounding for seconds
-    sec = int(((mins_frac - m) * 60) + 0.5)
-
-    if sec >= 60:
-        sec = 0; m += 1
-    if m >= 60:
-        m = 0; h += 1
-    if h >= 24:
-        h = 0; d += 1
-
-    return f"{year:04d}-{month:02d}-{d:02d}", f"{h:02d}:{m:02d}:{sec:02d}"
+def add_calendar_time(current_date, step_val, step_unit):
+    """Forces calendar stepping (e.g., strict years/months) instead of physical fractions."""
+    if step_unit == 'days':
+        return current_date + dt.timedelta(days=step_val)
+    elif step_unit == 'weeks':
+        return current_date + dt.timedelta(weeks=step_val)
+    elif step_unit == 'months':
+        month = current_date.month - 1 + step_val
+        year = current_date.year + month // 12
+        month = month % 12 + 1
+        day = min(current_date.day, calendar.monthrange(year, month)[1])
+        return current_date.replace(year=year, month=month, day=day)
+    elif step_unit == 'years':
+        try:
+            return current_date.replace(year=current_date.year + step_val)
+        except ValueError:
+            # Handle Feb 29 on non-leap years
+            return current_date.replace(year=current_date.year + step_val, day=28)
+    raise ValueError(f"Unsupported time unit: {step_unit}")
 
 def parse_tychos_coord(coord_str):
     nums = [float(x) for x in re.findall(r"[-+]?(?:\d*\.\d+|\d+)", str(coord_str))]
@@ -68,8 +52,7 @@ def format_ra(ra_hours):
     h = int(ra_hours)
     m_float = (ra_hours - h) * 60
     m = int(m_float)
-    # JS-style rounding
-    s = int(((m_float - m) * 60) + 0.5)
+    s = int(((m_float - m) * 60) + 0.5) # JS style rounding
     if s >= 60:
         s = 0; m += 1
     if m >= 60:
@@ -82,8 +65,7 @@ def format_dec(dec_degrees):
     d = int(dec_abs)
     m_float = (dec_abs - d) * 60
     m = int(m_float)
-    # JS-style rounding
-    s = int(((m_float - m) * 60) + 0.5)
+    s = int(((m_float - m) * 60) + 0.5) # JS style rounding
     if s >= 60:
         s = 0; m += 1
     if m >= 60:
@@ -118,22 +100,6 @@ def main():
     except ValueError:
         print("Error: Invalid date format. Please use YYYY-MM-DD.")
         return
-        
-    start_jd = calendar_to_jd(start_date.year, start_date.month, start_date.day)
-    end_jd = calendar_to_jd(end_date.year, end_date.month, end_date.day)
-    
-    # Calculate physical step increment in days
-    if args.step_unit == 'days':
-        increment_days = args.step_val
-    elif args.step_unit == 'weeks':
-        increment_days = args.step_val * 7
-    elif args.step_unit == 'months':
-        increment_days = (365.2425 / 12) * args.step_val
-    elif args.step_unit == 'years':
-        increment_days = 365.2425 * args.step_val
-
-    # Guarantee matching rows via total steps formula used in JS
-    total_steps = round((end_jd - start_jd) / increment_days)
 
     planets = [p.strip().capitalize() for p in args.planets.split(",")]
     system = T.TychosSystem()
@@ -158,14 +124,13 @@ def main():
             print(f"{'Date':<13}| {'Time':<11}| {'RA':<13}| {'Dec':<13}| {'Dist':<13}| {'Elongation'}", file=f)
             print("-" * 80, file=f)
             
-            for step in range(total_steps + 1):
-                # Continuous physical time
-                current_jd = start_jd + (step * increment_days)
+            current_date = start_date
+            while current_date <= end_date:
+                # 1. Force Python to calculate the strict Julian Date for THIS calendar day
+                jd = calendar_to_jd(current_date.year, current_date.month, current_date.day, 
+                                    current_date.hour, current_date.minute, current_date.second)
                 
-                # Get precise calendar strings
-                date_str, time_str = jd_to_calendar(current_jd)
-                
-                system.move_system(current_jd)
+                system.move_system(jd)
                 
                 p_ra_str, p_dec_str, p_dist = system[planet].radec_direct(system['Earth'], system['Polar_axis'], 'date')
                 s_ra_str, s_dec_str, _ = system['Sun'].radec_direct(system['Earth'], system['Polar_axis'], 'date')
@@ -178,10 +143,15 @@ def main():
                 elongation = calculate_elongation(s_ra_num, s_dec_num, p_ra_num, p_dec_num)
                 dist_au = float(p_dist)
                 
+                date_fmt = current_date.strftime("%Y-%m-%d")
+                time_fmt = current_date.strftime("%H:%M:%S")
                 ra_fmt = format_ra(p_ra_num)
                 dec_fmt = format_dec(p_dec_num)
                 
-                print(f"{date_str:<13}| {time_str:<11}| {ra_fmt:<13}| {dec_fmt:<13}| {dist_au:.2f} AU      | {elongation:.3f}°", file=f)
+                print(f"{date_fmt:<13}| {time_fmt:<11}| {ra_fmt:<13}| {dec_fmt:<13}| {dist_au:.2f} AU      | {elongation:.3f}°", file=f)
+                
+                # 2. Step forward cleanly by calendar year
+                current_date = add_calendar_time(current_date, args.step_val, args.step_unit)
 
     print("Done!")
 
